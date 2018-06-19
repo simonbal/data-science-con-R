@@ -97,20 +97,43 @@ Hemos encontrado una particion bastante justa. Ahora podemos construir nuestro a
 
 Usaremos el algoritmo C5.0 del paquete *C50* para entrenar nuestro modelo de árbol de decisión. Si no lo ha hecho, instale el paquete con *install.packages("C50")* y cárguelo en su sesión de R con *library(C50)*.
 
-![**Ayuda de R - Documentación**](prestamos_files/figure-html/c50.png)
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+Para la primera iteración del modelo, usaremos la configuración por defecto de *C5.0*. La columna 17 del conjunto credito_train es la variable de clase *default*, y necesitamos excluírla del data frame de entrenamiento, pero agregándola como el vector de factores objetivo (target) para la clasificación.
+```{r}
+install.packages("C50")
+library(C50)
+credito_modelo <- C5.0(credito_train[-17], credito_train$default)
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+El objeto *credito_modelo* contiene ahora un árbol de decisión C5.0. Podemos ver algunos datos básicos del árbol escribiendo su nombre:
+```{r}
+credito_modelo
 ```
+El texto anterior muestra hechos simples sobre el árbol, incluyendo la función *call* que lo generó, el número de características (*predictors*), y ejemplos (*samples*) usados para poblar el árbol. También se muestra el tamaño del árbol, que indica la profundidad de las decisiones (57).
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Para ver las decisiones del árbol, se llama a la función *summary()* en el modelo:
+```{r}
+summary(credito_modelo)
+```
+La salida muestra algunas de las primeras ramas del árbol de decisiones. Las primeras tres líneas podrían explicarse así:
+
+1. Si el balance de cuenta es desconocido o mayor a 200 DM, se clasifica como "no propenso a impago".
+2. Por otra parte, si el balance de cuenta es menor que cero DM, o entre uno y 200 DM.
+3. Y el historial de crédito es perfecto o muy bueno, entonces se clasifica como "propenso a impago".
+
+El número entre parentesis indica el número de ejemplos que cumplen el criterio para esa decisión, y el úumero de clasificados incorrectamente por la decisión. Por ejemplo, en la primera línea, *412/50* indica que de 412 ejemplos que llegaron a la decisión, 50 fueron incorrectamente clasificados como no propensos a impago. En otras palabras, 50 clientes impagaron, a expensas de la predicción contraria del modelo.
+
+Algunas veces un árbol produce decisiones con poca lógica. Por ejemplo, ¿porqué un deudor cuyo crédito es muy bueno es propenso a impago, mientras que aquellos cuyo balance de cuenta es desconocido no lo son? Reglas contradictorias como estas ocurren a veces. Esto podría reflejar un patrón real en los datos, o podría ser una anomalía estadística. En cualquier caso, es importante investigar estas decisiones extrañas para ver si la lógica del árbol tiene sentido para usarla en el negocio.
+
+## Paso 4 - Evaluación del rendimiento del modelo
+Para aplicar el árbol de decisión al conjunto de prueba, se usa la función *predict()* así:
+```{r}
+credito_pred <- predict(credito_modelo, credito_test)
+```
+Se crea un vector de valores de clase previsto, que se puede comparar con los valores actuales de clase usando la funcion *CrossTable()* del paquete *gmodels*. Estableciendo los parámetros *prop.c* y *prop.r* a FALSE se quitan la columna y la fila de porcentajes de la tabla. El porcentaje restante (*prop.t*) indica la proporción de registros en la celda con respecto al total:
+```{r}
+install.packages("gmodels")
+library(gmodels)
+CrossTable(credito_test$default, credito_pred,
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c('impago actual', 'impago predicho'))
+```
+De 100 registros de prueba de los préstamos, el modelo predijo correctamente  que 59 no impagaron y que 14 lo hicieron, resultando en una precisión del 73 por ciento y una tasa de error del 27 por ciento. Esto es algo peor que el comportamiento en los datos de entrenamiento, pero no es inesperado, ya que el rendimiento del modelo es aún peor en los datos no vistos. Tambien se nota que el modelo solo predijo correctamente 13 de los 33 impagos del conjunto de prueba, o sea un 42 por ciento. Desafortunadamente, este tipo de error es potencialmente muy costoso, ya que el banco pierde dinero con cada incumplimiento. Veamos si podemos mejorar el resultado, con un poco más de trabajo.
